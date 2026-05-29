@@ -19,9 +19,7 @@ const cache = new Map<
 >();
 const CACHE_TTL = 60_000;
 
-export function useReputation(
-  address: string | null
-): UseReputationResult {
+export function useReputation(address: string | null): UseReputationResult {
   const [score, setScore] = useState<number | null>(null);
   const [grantsCompleted, setGrantsCompleted] = useState(0);
   const [totalEarned, setTotalEarned] = useState<bigint>(BigInt(0));
@@ -69,7 +67,10 @@ export function useReputation(
         finalEarned = BigInt(apiResult.value.data.total_earned ?? 0);
       }
 
-      if (contributorResult.status === "rejected" && apiResult.status === "rejected") {
+      if (
+        contributorResult.status === "rejected" &&
+        apiResult.status === "rejected"
+      ) {
         throw new Error("Failed to fetch reputation from all sources");
       }
 

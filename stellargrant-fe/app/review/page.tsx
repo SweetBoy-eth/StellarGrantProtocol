@@ -58,13 +58,13 @@ export default function ReviewerDashboard() {
   const filtered = milestones.filter((m) => {
     if (filter === "all") return true;
     const hasVoted = m.votes.some(
-      (v) => v.reviewer === address && v.vote !== null
+      (v) => v.reviewer === address && v.vote !== null,
     );
     return filter === "pending" ? !hasVoted : hasVoted;
   });
 
   const pendingCount = milestones.filter(
-    (m) => !m.votes.some((v) => v.reviewer === address && v.vote !== null)
+    (m) => !m.votes.some((v) => v.reviewer === address && v.vote !== null),
   ).length;
 
   return (
@@ -125,22 +125,20 @@ export default function ReviewerDashboard() {
                   {filter === "all"
                     ? "You're not a reviewer on any active grants"
                     : filter === "pending"
-                    ? "You're all caught up — no pending votes"
-                    : "You haven't voted on any milestones yet"}
+                      ? "You're all caught up — no pending votes"
+                      : "You haven't voted on any milestones yet"}
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {filtered.map((m) => {
                   const approvalCount = m.votes.filter(
-                    (v) => v.vote === "approve"
+                    (v) => v.vote === "approve",
                   ).length;
                   const hasVoted = m.votes.some(
-                    (v) => v.reviewer === address && v.vote !== null
+                    (v) => v.reviewer === address && v.vote !== null,
                   );
-                  const myVote = m.votes.find(
-                    (v) => v.reviewer === address
-                  );
+                  const myVote = m.votes.find((v) => v.reviewer === address);
 
                   return (
                     <div
