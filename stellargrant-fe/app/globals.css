@@ -196,19 +196,22 @@ h1, h2, h3, h4, h5, h6 {
   background-color: rgba(5, 10, 20, 0.75);
   backdrop-filter: blur(4px);
   z-index: 200;
+  /* Flex-center the panel so framer-motion y animation has no conflict */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
 .wallet-modal-panel {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* No position:fixed — centered by backdrop flexbox */
   width: 100%;
   max-width: 400px;
   background-color: var(--surface);
   border: 1px solid var(--border);
-  z-index: 201;
   padding: 28px;
+  /* Prevent clicks reaching the backdrop */
+  pointer-events: all;
 }
 
 .wallet-modal-header {

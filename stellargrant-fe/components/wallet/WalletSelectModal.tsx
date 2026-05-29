@@ -101,19 +101,18 @@ export function WalletSelectModal({ open, onClose }: WalletSelectModalProps) {
   return (
     <AnimatePresence>
       {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            className="wallet-modal-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            aria-hidden="true"
-          />
-
-          {/* Panel */}
+        /* Single backdrop — flex-centered so framer-motion y animation
+           does not conflict with a CSS translate(-50%,-50%) centering trick */
+        <motion.div
+          className="wallet-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={onClose}
+          aria-hidden="true"
+        >
+          {/* Panel sits inside the flex container — stop click propagating to backdrop */}
           <motion.div
             className="wallet-modal-panel"
             role="dialog"
@@ -123,6 +122,7 @@ export function WalletSelectModal({ open, onClose }: WalletSelectModalProps) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }}
             transition={{ duration: 0.2 }}
+            onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="wallet-modal-header">
@@ -212,7 +212,7 @@ export function WalletSelectModal({ open, onClose }: WalletSelectModalProps) {
               </div>
             )}
           </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
