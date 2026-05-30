@@ -1,8 +1,8 @@
 "use client";
 
-import { use, Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { use, Suspense, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Download, ChevronDown } from "lucide-react";
 import { FundingProgress } from "@/components/grants/FundingProgress";
 import { GrantStatusBadge } from "@/components/grants/GrantStatusBadge";
 import { WalletAddress } from "@/components/wallet/WalletAddress";
@@ -15,6 +15,8 @@ import RichTextRenderer from "@/components/ui/RichTextRenderer";
 import { formatDate } from "@/lib/utils";
 import { formatTokenAmount, getTokenMetadata } from "@/lib/tokens";
 import { stellarExplorerAccount } from "@/lib/constants";
+import { exportGrantAsJSON, exportGrantAsCSV, exportFundersAsCSV } from "@/lib/utils/export";
+import type { FunderRecord } from "@/lib/utils/export";
 import { useGrant } from "@/hooks/useGrant";
 import { useFunders } from "@/hooks/useFunders";
 import { useGrantBalances } from "@/hooks/useGrantBalances";
@@ -23,8 +25,90 @@ import { useContractEvents } from "@/hooks/useContractEvents";
 import { useOptimisticGrant } from "@/hooks/useOptimisticGrant";
 import { toast } from "@/lib/toast";
 import { ErrorCard } from "@/components/ui/ErrorCard";
-import type { TokenMetadata, Grant } from "@/types";
+import type { TokenMetadata, Grant, Milestone } from "@/types";
 import type { GrantBalances } from "@/lib/stellar/balances";
+
+function ExportDropdown({
+  grant,
+  milestones,
+  funders,
+}: {
+  grant: Grant;
+  milestones: Milestone[];
+  funders: FunderRecord[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const items: { label: string; action: () => void }[] = [
+    {
+      label: "Export as JSON",
+      action: () => {
+        exportGrantAsJSON(grant, milestones);
+        setOpen(false);
+      },
+    },
+    {
+      label: "Export milestones as CSV",
+      action: () => {
+        exportGrantAsCSV(grant, milestones);
+        setOpen(false);
+      },
+    },
+    {
+      label: "Export funders as CSV",
+      action: () => {
+        exportFundersAsCSV(funders);
+        setOpen(false);
+      },
+    },
+  ];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider border border-border-color text-text-muted px-3 py-1.5 hover:border-accent-primary hover:text-accent-primary transition-colors"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <Download size={12} />
+        Export
+        <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-50 min-w-[200px] border border-border-color bg-surface shadow-lg"
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={item.action}
+              className="block w-full text-left font-mono text-xs text-text-primary px-4 py-2.5 hover:bg-bg-secondary transition-colors"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function daysUntilDeadline(deadlineTs: bigint): number {
   const ms = Number(deadlineTs) * 1000 - Date.now();
@@ -212,6 +296,16 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
             grantId={grant.id}
             grantTitle={grant.title}
             fundedPercent={fundedPercent}
+          />
+          <ExportDropdown
+            grant={grant}
+            milestones={milestones}
+            funders={funders.map((f) => ({
+              address: f.address,
+              amount: f.amount,
+              token: grant.token ?? "native",
+              timestamp: new Date().toISOString(),
+            }))}
           />
         </div>
       </div>
