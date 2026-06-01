@@ -3,13 +3,11 @@ import { Grant } from "../entities/Grant";
 import { Contributor } from "../entities/Contributor";
 import { ReputationLog } from "../entities/ReputationLog";
 
-/** A leaderboard row enriched with an internal cursor id for keyset pagination. */
+/** A leaderboard row. */
 export interface LeaderboardEntry {
   address: string;
   reputation: number;
   totalGrantsCompleted: number;
-  /** Internal field used for cursor encoding. Stripped before sending to clients. */
-  _cursorId: number;
 }
 
 export class LeaderboardService {
@@ -37,19 +35,21 @@ export class LeaderboardService {
   // ── Cursor-based ─────────────────────────────────────────────────────────────
 
   /**
-   * Returns leaderboard entries whose internal cursor id is greater than
-   * `afterCursorId`, ordered by reputation DESC then id ASC for stability.
+   * Returns leaderboard entries after the given cursor address,
+   * ordered by reputation DESC then address ASC for stability.
    * Fetches `limit + 1` rows so the caller can detect `hasMore`.
+   *
+   * The cursor encodes the last-seen address (Contributor's PK).
    */
   async getLeaderboardAfterCursor(
     period: "all-time" | "monthly",
-    afterCursorId: number,
+    afterAddress: string,
     limit: number = 20,
   ): Promise<[LeaderboardEntry[], number]> {
     if (period === "all-time") {
-      return this._allTimeLeaderboardCursor(afterCursorId, limit);
+      return this._allTimeLeaderboardCursor(afterAddress, limit);
     }
-    return this._monthlyLeaderboardCursor(afterCursorId, limit);
+    return this._monthlyLeaderboardCursor(afterAddress, limit);
   }
 
   // ── Private: all-time ────────────────────────────────────────────────────────
@@ -58,47 +58,52 @@ export class LeaderboardService {
     page: number,
     limit: number,
   ): Promise<[LeaderboardEntry[], number]> {
-    const qb = this.contributorRepo
-      .createQueryBuilder("c")
-      .select(["c.address", "c.reputation", "c.totalGrantsCompleted"])
-      .addSelect("c.id", "_cursorId")
-      .where("c.isBlacklisted = false")
-      .orderBy("c.reputation", "DESC")
-      .addOrderBy("c.id", "ASC")
-      .skip((page - 1) * limit)
-      .take(limit);
+    const [rows, total] = await this.contributorRepo.findAndCount({
+      where: { isBlacklisted: false },
+      order: { reputation: "DESC", address: "ASC" },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
-    const [rows, total] = await qb.getManyAndCount();
-    const entries = rows.map((c) => ({
+    const entries: LeaderboardEntry[] = rows.map((c) => ({
       address: c.address,
       reputation: c.reputation,
       totalGrantsCompleted: c.totalGrantsCompleted,
-      _cursorId: (c as unknown as { id: number }).id,
     }));
     return [entries, total];
   }
 
   private async _allTimeLeaderboardCursor(
-    afterCursorId: number,
+    afterAddress: string,
     limit: number,
   ): Promise<[LeaderboardEntry[], number]> {
-    const qb = this.contributorRepo
-      .createQueryBuilder("c")
-      .select(["c.address", "c.reputation", "c.totalGrantsCompleted"])
-      .addSelect("c.id", "_cursorId")
-      .where("c.isBlacklisted = false")
-      .andWhere("c.id > :afterCursorId", { afterCursorId })
-      .orderBy("c.reputation", "DESC")
-      .addOrderBy("c.id", "ASC")
-      .take(limit + 1);
+    // Find the reputation of the cursor address so we can do a proper keyset
+    const cursorRow = await this.contributorRepo.findOne({
+      where: { address: afterAddress },
+    });
 
     const total = await this.contributorRepo.count({ where: { isBlacklisted: false } });
+
+    const qb = this.contributorRepo
+      .createQueryBuilder("c")
+      .where("c.isBlacklisted = false")
+      .orderBy("c.reputation", "DESC")
+      .addOrderBy("c.address", "ASC")
+      .take(limit + 1);
+
+    if (cursorRow) {
+      // Keyset: rows with lower reputation, or same reputation but address > cursor
+      qb.andWhere(
+        "(c.reputation < :rep OR (c.reputation = :rep AND c.address > :addr))",
+        { rep: cursorRow.reputation, addr: afterAddress },
+      );
+    }
+
     const rows = await qb.getMany();
-    const entries = rows.map((c) => ({
+    const entries: LeaderboardEntry[] = rows.map((c) => ({
       address: c.address,
       reputation: c.reputation,
       totalGrantsCompleted: c.totalGrantsCompleted,
-      _cursorId: (c as unknown as { id: number }).id,
     }));
     return [entries, total];
   }
@@ -127,13 +132,13 @@ export class LeaderboardService {
       .createQueryBuilder("log")
       .select("log.address", "address")
       .addSelect("SUM(log.gain)", "monthlyReputation")
-      .addSelect("MIN(log.id)", "_cursorId")
       .where("log.timestamp >= :thirtyDaysAgo", { thirtyDaysAgo })
       .groupBy("log.address")
       .orderBy("SUM(log.gain)", "DESC")
+      .addOrderBy("log.address", "ASC")
       .offset((page - 1) * limit)
       .limit(limit)
-      .getRawMany<{ address: string; monthlyReputation: string; _cursorId: string }>();
+      .getRawMany<{ address: string; monthlyReputation: string }>();
 
     const entries = await Promise.all(
       rawResults.map(async (row) => {
@@ -144,7 +149,6 @@ export class LeaderboardService {
           address: row.address,
           reputation: parseInt(row.monthlyReputation, 10),
           totalGrantsCompleted: contributor?.totalGrantsCompleted ?? 0,
-          _cursorId: parseInt(row._cursorId, 10),
         };
       }),
     );
@@ -153,7 +157,7 @@ export class LeaderboardService {
   }
 
   private async _monthlyLeaderboardCursor(
-    afterCursorId: number,
+    afterAddress: string,
     limit: number,
   ): Promise<[LeaderboardEntry[], number]> {
     const thirtyDaysAgo = new Date();
@@ -167,20 +171,35 @@ export class LeaderboardService {
 
     const totalCount = parseInt(countResult?.count ?? "0", 10);
     if (totalCount === 0) {
-      return this._allTimeLeaderboardCursor(afterCursorId, limit);
+      return this._allTimeLeaderboardCursor(afterAddress, limit);
     }
+
+    // Find the monthly reputation of the cursor address for keyset
+    const cursorResult = await this.reputationLogRepo
+      .createQueryBuilder("log")
+      .select("SUM(log.gain)", "monthlyReputation")
+      .where("log.address = :addr AND log.timestamp >= :thirtyDaysAgo", {
+        addr: afterAddress,
+        thirtyDaysAgo,
+      })
+      .getRawOne<{ monthlyReputation: string }>();
+
+    const cursorRep = parseInt(cursorResult?.monthlyReputation ?? "0", 10);
 
     const rawResults = await this.reputationLogRepo
       .createQueryBuilder("log")
       .select("log.address", "address")
       .addSelect("SUM(log.gain)", "monthlyReputation")
-      .addSelect("MIN(log.id)", "_cursorId")
       .where("log.timestamp >= :thirtyDaysAgo", { thirtyDaysAgo })
-      .andWhere("log.id > :afterCursorId", { afterCursorId })
       .groupBy("log.address")
+      .having(
+        "(SUM(log.gain) < :rep OR (SUM(log.gain) = :rep AND log.address > :addr))",
+        { rep: cursorRep, addr: afterAddress },
+      )
       .orderBy("SUM(log.gain)", "DESC")
+      .addOrderBy("log.address", "ASC")
       .limit(limit + 1)
-      .getRawMany<{ address: string; monthlyReputation: string; _cursorId: string }>();
+      .getRawMany<{ address: string; monthlyReputation: string }>();
 
     const entries = await Promise.all(
       rawResults.map(async (row) => {
@@ -191,7 +210,6 @@ export class LeaderboardService {
           address: row.address,
           reputation: parseInt(row.monthlyReputation, 10),
           totalGrantsCompleted: contributor?.totalGrantsCompleted ?? 0,
-          _cursorId: parseInt(row._cursorId, 10),
         };
       }),
     );

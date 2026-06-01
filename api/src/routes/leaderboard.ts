@@ -1,6 +1,35 @@
 import { Router } from "express";
 import { LeaderboardService } from "../services/leaderboard-service";
-import { encodeCursor, decodeCursor, hasCursorPageConflict } from "../utils/pagination";
+import { hasCursorPageConflict } from "../utils/pagination";
+
+/**
+ * Encode a leaderboard cursor from a contributor address.
+ * Uses base64url so the value is URL-safe without percent-encoding.
+ */
+function encodeLeaderboardCursor(address: string): string {
+  return Buffer.from(JSON.stringify({ address })).toString("base64url");
+}
+
+/**
+ * Decode a leaderboard cursor back to an address.
+ * Throws if the cursor is malformed.
+ */
+function decodeLeaderboardCursor(cursor: string): string {
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as Record<string, unknown>).address !== "string"
+    ) {
+      throw new Error("Invalid cursor shape");
+    }
+    return (parsed as { address: string }).address;
+  } catch {
+    throw new Error("Invalid or malformed cursor");
+  }
+}
 
 export const buildLeaderboardRouter = (leaderboardService: LeaderboardService) => {
   const router = Router();
@@ -29,8 +58,8 @@ export const buildLeaderboardRouter = (leaderboardService: LeaderboardService) =
    *         name: cursor
    *         schema: { type: string }
    *         description: >
-   *           Opaque cursor from meta.nextCursor. Uses the last-seen contributor
-   *           id as the keyset pointer.
+   *           Opaque cursor from meta.nextCursor. Encodes the last-seen
+   *           contributor address for keyset pagination.
    *     responses:
    *       200:
    *         description: Leaderboard page
@@ -52,7 +81,6 @@ export const buildLeaderboardRouter = (leaderboardService: LeaderboardService) =
    *                       type: boolean
    *                     total:
    *                       type: integer
-   *                       description: Only present for offset pagination.
    *                     page:
    *                       type: integer
    *                       description: Only present for offset pagination.
@@ -77,10 +105,9 @@ export const buildLeaderboardRouter = (leaderboardService: LeaderboardService) =
 
       // ── Cursor-based path ──────────────────────────────────────────────────
       if (rawCursor !== undefined) {
-        let cursorId: number;
+        let afterAddress: string;
         try {
-          const decoded = decodeCursor(rawCursor);
-          cursorId = decoded.id;
+          afterAddress = decodeLeaderboardCursor(rawCursor);
         } catch {
           res.status(400).json({ error: "Invalid cursor" });
           return;
@@ -88,31 +115,18 @@ export const buildLeaderboardRouter = (leaderboardService: LeaderboardService) =
 
         const [data, total] = await leaderboardService.getLeaderboardAfterCursor(
           period,
-          cursorId,
+          afterAddress,
           limit,
         );
 
-        const hasMore = (data as unknown[]).length > limit;
-        const page = (data as unknown[]).slice(0, limit);
-        const last = page[page.length - 1] as { id?: number; _cursorId?: number } | undefined;
-
-        // The leaderboard service returns a _cursorId field for cursor encoding
-        const lastId = last?._cursorId ?? last?.id;
-        const nextCursor =
-          hasMore && lastId !== undefined
-            ? encodeCursor(lastId, new Date(0)) // timestamp unused for leaderboard; id is the keyset
-            : null;
-
-        // Strip internal _cursorId before sending
-        const cleaned = page.map((item) => {
-          const { _cursorId: _dropped, ...rest } = item as Record<string, unknown>;
-          return rest;
-        });
+        const hasMore = data.length > limit;
+        const page = data.slice(0, limit);
+        const last = page[page.length - 1];
 
         return res.json({
-          data: cleaned,
+          data: page,
           meta: {
-            nextCursor,
+            nextCursor: hasMore && last ? encodeLeaderboardCursor(last.address) : null,
             hasMore,
             total,
             limit,
