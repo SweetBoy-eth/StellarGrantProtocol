@@ -19,8 +19,10 @@ import {
   TransactionResult,
   WaitForTransactionOptions,
   TransactionPollingStatus,
+  IpfsUploadConfig,
 } from "./types";
 import { meetsThreshold, PendingXdrStore } from "./utils/transactions";
+import { uploadMetadataToIPFS, fetchMetadataFromIPFS } from "./ipfs";
 
 export const CONTRACT_INTERFACE_VERSION = 1;
 
@@ -53,17 +55,63 @@ export class StellarGrantsSDK {
 
   /**
    * Creates a new grant.
+   * 
+   * @param input Grant creation parameters
+   * @param options Transaction options including IPFS configuration
+   * @returns Transaction result
+   * 
+   * @example
+   * ```typescript
+   * // With IPFS metadata upload
+   * const result = await sdk.grantCreate(
+   *   {
+   *     owner: 'G...',
+   *     title: 'My Grant',
+   *     description: 'ipfs://Qm...', // Will be auto-uploaded if ipfsConfig provided
+   *     budget: BigInt(1000000),
+   *     deadline: BigInt(Date.now() / 1000 + 86400 * 30),
+   *     milestoneCount: 3
+   *   },
+   *   {
+   *     ipfsConfig: { pinataJwt: process.env.PINATA_JWT },
+   *     uploadMetadata: true
+   *   }
+   * );
+   * ```
    */
   async grantCreate(
     input: GrantCreateInput,
-    options?: { feePriority?: "low" | "medium" | "high"; simulatedFee?: string; footprint?: any },
+    options?: { 
+      feePriority?: "low" | "medium" | "high"; 
+      simulatedFee?: string; 
+      footprint?: any;
+      ipfsConfig?: IpfsUploadConfig;
+      uploadMetadata?: boolean;
+    },
   ): Promise<unknown> {
+    let description = input.description;
+
+    // Auto-upload metadata to IPFS if requested
+    if (options?.uploadMetadata && options?.ipfsConfig) {
+      const metadata = {
+        title: input.title,
+        description: input.description,
+        budget: input.budget.toString(),
+        deadline: input.deadline.toString(),
+        milestoneCount: input.milestoneCount,
+        owner: input.owner,
+      };
+
+      const { cid } = await uploadMetadataToIPFS(metadata, options.ipfsConfig);
+      description = `ipfs://${cid}`;
+    }
+
     return this.invokeWrite(
       "grant_create",
       [
         nativeToScVal(input.owner, { type: "address" }),
         nativeToScVal(input.title),
-        nativeToScVal(input.description),
+        nativeToScVal(description),
         nativeToScVal(input.budget, { type: "i128" }),
         nativeToScVal(input.deadline, { type: "u64" }),
         nativeToScVal(input.milestoneCount, { type: "u32" }),
@@ -258,9 +306,44 @@ export class StellarGrantsSDK {
 
   /**
    * Reads a grant by id.
+   * 
+   * @param grantId Grant identifier
+   * @param options Options including IPFS gateway fallbacks
+   * @returns Grant data with metadata fetched from IPFS if applicable
+   * 
+   * @example
+   * ```typescript
+   * const grant = await sdk.grantGet(1, {
+   *   fetchIpfsMetadata: true,
+   *   ipfsGateways: ['https://gateway.pinata.cloud/ipfs/']
+   * });
+   * ```
    */
-  async grantGet(grantId: number): Promise<unknown> {
-    return this.invokeRead("grant_get", [nativeToScVal(grantId, { type: "u32" })]);
+  async grantGet(
+    grantId: number,
+    options?: {
+      fetchIpfsMetadata?: boolean;
+      ipfsGateways?: string[];
+    }
+  ): Promise<unknown> {
+    const grant = await this.invokeRead("grant_get", [nativeToScVal(grantId, { type: "u32" })]);
+
+    // Fetch IPFS metadata if description is an IPFS CID
+    if (options?.fetchIpfsMetadata && grant && typeof grant === 'object') {
+      const description = (grant as any).description || '';
+      if (description.startsWith('ipfs://')) {
+        const cid = description.replace('ipfs://', '');
+        try {
+          const metadata = await fetchMetadataFromIPFS(cid, options.ipfsGateways);
+          return { ...grant, metadata, description };
+        } catch (error) {
+          // Log but don't fail if IPFS fetch fails
+          console.warn(`Failed to fetch IPFS metadata for CID ${cid}:`, error);
+        }
+      }
+    }
+
+    return grant;
   }
 
   /**
@@ -549,6 +632,36 @@ export class StellarGrantsSDK {
       }
       throw error;
     }
+  }
+
+  /**
+   * Upload metadata to IPFS using configured provider.
+   * Helper method that wraps the standalone uploadMetadataToIPFS function.
+   * 
+   * @param metadata JSON metadata object
+   * @param config IPFS upload configuration
+   * @returns CID and gateway URL
+   */
+  async uploadMetadataToIPFS(
+    metadata: Record<string, unknown>,
+    config: IpfsUploadConfig
+  ) {
+    return uploadMetadataToIPFS(metadata, config);
+  }
+
+  /**
+   * Fetch metadata from IPFS with fallback gateways.
+   * Helper method that wraps the standalone fetchMetadataFromIPFS function.
+   * 
+   * @param cid IPFS Content Identifier
+   * @param gateways Optional custom gateway list
+   * @returns Parsed metadata object
+   */
+  async fetchMetadataFromIPFS(
+    cid: string,
+    gateways?: string[]
+  ) {
+    return fetchMetadataFromIPFS(cid, gateways);
   }
 
   private async setAllowance(token: string, amount: bigint, owner: string) {
