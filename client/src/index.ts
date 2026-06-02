@@ -1,6 +1,9 @@
 export { StellarGrantsSDK } from "./StellarGrantsSDK";
 export { parseSorobanError } from "./errors/parseSorobanError";
-export { SorobanRevertError, StellarGrantsError } from "./errors/StellarGrantsError";
+export { ContractError, SorobanRevertError, StellarGrantsError } from "./errors/StellarGrantsError";
+export { TransactionTimeoutError } from "./errors/TransactionTimeoutError";
+export { TransactionFailedError } from "./errors/TransactionFailedError";
+export { ContractErrorCode, ErrorMessages } from "./errors/errorCodes";
 export type {
   GrantCreateInput,
   GrantFundInput,
@@ -9,6 +12,9 @@ export type {
   StellarGrantsSDKConfig,
   StellarGrantsSigner,
   WalletAdapter,
+  TransactionResult,
+  WaitForTransactionOptions,
+  TransactionPollingStatus,
 } from "./types";
 
 // Wallet adapters — import directly from @stellargrants/client-sdk

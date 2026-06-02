@@ -48,6 +48,8 @@ import { buildDisputesRouter, buildGrantDisputesRouter } from "./routes/disputes
 import { buildMilestoneAppealsRouter } from "./routes/milestone-appeals";
 import { buildGrantDraftsRouter } from "./routes/grant-drafts";
 import { buildContributorsRouter } from "./routes/contributors";
+import { buildIpfsPresignRouter } from "./routes/ipfs-presign";
+import { buildEventsRouter } from "./routes/events";
 
 export const createApp = (dataSource: DataSource, sorobanClient: SorobanContractClient) => {
   const app = express();
@@ -102,6 +104,8 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   app.use("/communities", buildCommunitiesRouter(communityRepo, grantRepo, activityRepo, rbacService, webhookDispatcher));
   app.use("/notifications", buildNotificationsRouter(contributorRepo));
   app.use("/contributors", buildContributorsRouter(contributorRepo, grantRepo, proofRepo, activityRepo));
+  app.use("/ipfs", buildIpfsPresignRouter());
+  app.use("/events", buildEventsRouter(activityRepo));
   app.use("/users", buildUserRouter(userRepo));
   app.use("/grant_reviewers", buildGrantReviewerRouter(reviewerRepo));
   app.use("/milestone_approvals_notify", buildMilestoneApprovalNotifyRouter(approvalRepo, grantRepo, userRepo, webhookDispatcher));
