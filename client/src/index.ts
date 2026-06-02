@@ -17,6 +17,15 @@ export type {
   TransactionPollingStatus,
 } from "./types";
 
+// IPFS helpers — Task #488
+export { uploadMetadataToIPFS, fetchMetadataFromIPFS } from "./ipfs";
+export type { IpfsUploadConfig, IpfsUploadResult } from "./types";
+
+// Optimistic UI utilities — Task #487
+export { TransactionTracker } from "./utils/TransactionTracker";
+export { OptimisticStateManager } from "./utils/OptimisticStateManager";
+export type { TransactionStage, TransactionTrackerEvents, OptimisticUpdate } from "./utils/TransactionTracker";
+
 // Wallet adapters — import directly from @stellargrants/client-sdk
 export { FreighterAdapter } from "./wallets/FreighterAdapter";
 export { AlbedoAdapter } from "./wallets/AlbedoAdapter";
