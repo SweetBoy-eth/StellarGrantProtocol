@@ -41,7 +41,7 @@
     "lightningcss-linux-x64-gnu": "^1.31.1"
   },
   "devDependencies": {
-    "@next/bundle-analyzer": "^15.0.0",
+    "@next/bundle-analyzer": "^16.0.0",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "cross-env": "^7.0.3",
