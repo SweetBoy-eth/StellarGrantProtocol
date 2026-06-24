@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+mod batch;
 mod constants;
 mod errors;
 mod events;
@@ -14,9 +15,9 @@ pub use errors::ContractError;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    ContractVersion, EscrowLifecycleState, EscrowMode, EscrowState, Grant, GrantFund, GrantStatus,
-    MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, RegistryEntry,
-    RegistryEntryType,
+    BatchItemResult, BatchMilestoneVote, BatchResult, ContractError, ContractVersion,
+    EscrowLifecycleState, EscrowMode, EscrowState, Grant, GrantFund, GrantStatus, MigrationRecord,
+    Milestone, MilestoneState, MilestoneSubmission, RegistryEntry, RegistryEntryType,
 };
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
@@ -893,6 +894,37 @@ impl StellarGrantsContract {
             .persistent()
             .set(&storage::DataKey::IdentityOracle, &oracle);
         Ok(())
+    }
+
+    // ── Batch Operations (#526) ─────────────────────────────────────
+
+    /// Vote on multiple milestones in one call. Partial failures are recorded per item.
+    pub fn batch_vote_milestones(
+        env: Env,
+        reviewer: Address,
+        votes: Vec<BatchMilestoneVote>,
+    ) -> Result<BatchResult, ContractError> {
+        batch::batch_vote_milestones(&env, &reviewer, votes)
+    }
+
+    /// Fund multiple grants with the same token in one call. Partial failures are recorded per item.
+    pub fn batch_fund_grants(
+        env: Env,
+        funder: Address,
+        token: Address,
+        items: Vec<(u64, i128)>,
+    ) -> Result<BatchResult, ContractError> {
+        batch::batch_fund_grants(&env, &funder, &token, items)
+    }
+
+    /// Cancel multiple grants. Callable by grant owner or global admin per grant.
+    pub fn batch_cancel_grants(
+        env: Env,
+        caller: Address,
+        grant_ids: Vec<u64>,
+        reason: String,
+    ) -> Result<BatchResult, ContractError> {
+        batch::batch_cancel_grants(&env, &caller, grant_ids, reason)
     }
 
     // ── Bulk Funding (#44) ──────────────────────────────────────────
