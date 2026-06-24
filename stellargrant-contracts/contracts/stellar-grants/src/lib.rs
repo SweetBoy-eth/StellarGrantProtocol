@@ -1,10 +1,13 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 mod audit;
+mod config;
 mod constants;
+mod dispute;
 mod emergency;
 mod errors;
 mod events;
+mod fees;
 mod governance;
 mod hooks;
 mod insurance;
@@ -12,6 +15,7 @@ mod migration;
 mod quadratic;
 mod reentrancy;
 mod registry;
+mod reputation;
 mod storage;
 mod streaming;
 mod types;
@@ -20,11 +24,11 @@ pub use errors::ContractError;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    AuditAction, AuditEntry, ContractVersion, EscrowLifecycleState, EscrowMode,
-    EscrowState, Grant, GrantFund, GrantStatus, HookCallResult, HookEvent, HookRegistration,
-    InsuranceClaim, InsurancePolicy, MigrationRecord, Milestone, MilestoneState,
-    MilestoneSubmission, PauseRecord, PaymentStream, QuadraticVoteRecord, RegistryEntry,
-    RegistryEntryType, VoiceCredits, VotingMechanism,
+    AuditAction, AuditEntry, ContractVersion, Dispute, DisputeStatus, EscrowLifecycleState,
+    EscrowMode, EscrowState, FeeRecord, Grant, GrantFund, GrantStatus, HookCallResult, HookEvent,
+    HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord, Milestone, MilestoneState,
+    MilestoneSubmission, PauseRecord, PaymentStream, ProtocolConfig, QuadraticVoteRecord,
+    RegistryEntry, RegistryEntryType, ReputationTier, VoiceCredits, VotingMechanism,
 };
 
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, Env, String, Vec};
@@ -77,11 +81,13 @@ impl StellarGrantsContract {
             return Err(ContractError::ZeroAmount);
         }
 
-        if num_milestones == 0 || num_milestones > constants::MAX_MILESTONES_PER_GRANT {
+        let protocol_cfg = config::get_config(&env);
+
+        if num_milestones == 0 || num_milestones > protocol_cfg.max_milestones_per_grant {
             return Err(ContractError::InvalidInput);
         }
 
-        if reviewers.len() > constants::MAX_REVIEWERS_PER_GRANT {
+        if reviewers.len() > protocol_cfg.max_reviewers {
             return Err(ContractError::ReviewerLimitExceeded);
         }
 
@@ -217,8 +223,11 @@ impl StellarGrantsContract {
             skills,
             github_url,
             registration_timestamp: env.ledger().timestamp(),
+            reputation_score: 0,
             grants_count: 0,
             total_earned: 0,
+            milestones_completed: 0,
+            milestones_rejected: 0,
         };
 
         Storage::set_contributor(&env, contributor.clone(), &profile);
@@ -531,6 +540,13 @@ impl StellarGrantsContract {
 
         if result.quorum_reached {
             if result.approved {
+                Self::update_contributor_reputation(
+                    &env,
+                    grant_id,
+                    milestone_idx,
+                    &grant.owner,
+                    grant.milestone_amount,
+                );
                 audit::log(
                     &env,
                     grant_id,
@@ -1277,6 +1293,136 @@ impl StellarGrantsContract {
     /// Check if any active hooks are registered for an event.
     pub fn has_hooks(env: Env, event: HookEvent) -> bool {
         hooks::has_hooks(&env, event)
+    }
+
+    // ── Issue #514: Dispute Resolution Entry Points ───────────────────────────
+
+    pub fn dispute_raise(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        caller: Address,
+        reason: String,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        emergency::require_not_paused(&env)?;
+        let grant = Storage::get_grant(&env, grant_id).ok_or(ContractError::GrantNotFound)?;
+        dispute::raise_dispute(&env, &grant, milestone_idx, &caller, reason)?;
+        Ok(())
+    }
+
+    pub fn dispute_assign_arbiter(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        admin: Address,
+        arbiter: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        if Storage::get_global_admin(&env) != Some(admin.clone()) {
+            return Err(ContractError::Unauthorized);
+        }
+        let mut d = Storage::get_dispute(&env, grant_id, milestone_idx)
+            .ok_or(ContractError::InvalidState)?;
+        dispute::assign_arbiter(&env, &mut d, &admin, &arbiter)
+    }
+
+    pub fn dispute_arbiter_vote(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        arbiter: Address,
+        favor_contributor: bool,
+    ) -> Result<(), ContractError> {
+        arbiter.require_auth();
+        let mut d = Storage::get_dispute(&env, grant_id, milestone_idx)
+            .ok_or(ContractError::InvalidState)?;
+        dispute::arbiter_vote(&env, &mut d, &arbiter, favor_contributor)
+    }
+
+    pub fn dispute_resolve(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        caller: Address,
+    ) -> Result<DisputeStatus, ContractError> {
+        caller.require_auth();
+        if Storage::get_global_admin(&env) != Some(caller.clone()) {
+            return Err(ContractError::Unauthorized);
+        }
+        let mut grant = Storage::get_grant(&env, grant_id).ok_or(ContractError::GrantNotFound)?;
+        let mut d = Storage::get_dispute(&env, grant_id, milestone_idx)
+            .ok_or(ContractError::InvalidState)?;
+        let outcome = dispute::resolve_dispute(&env, &mut grant, &mut d)?;
+        Storage::set_grant(&env, grant_id, &grant);
+        Ok(outcome)
+    }
+
+    pub fn dispute_cancel(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        let mut d = Storage::get_dispute(&env, grant_id, milestone_idx)
+            .ok_or(ContractError::InvalidState)?;
+        dispute::cancel_dispute(&env, &mut d, &caller)
+    }
+
+    pub fn get_dispute_record(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Option<Dispute> {
+        Storage::get_dispute(&env, grant_id, milestone_idx)
+    }
+
+    // ── Issue #516: Runtime Protocol Configuration Entry Points ──────────────
+
+    pub fn update_config(
+        env: Env,
+        admin: Address,
+        new_config: ProtocolConfig,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        config::set_config(&env, &admin, new_config)
+    }
+
+    pub fn get_protocol_config(env: Env) -> ProtocolConfig {
+        config::get_config(&env)
+    }
+
+    // ── Issue #517: Protocol Fee Management Entry Points ─────────────────────
+
+    pub fn get_fees_collected(env: Env, token: Address) -> i128 {
+        fees::total_fees_collected(&env, &token)
+    }
+
+    // ── Private Helpers ───────────────────────────────────────────────────────
+
+    fn update_contributor_reputation(
+        env: &Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        contributor: &Address,
+        payout_amount: i128,
+    ) {
+        if Storage::has_milestone_reputation_applied(env, grant_id, milestone_idx) {
+            return;
+        }
+        Storage::mark_milestone_reputation_applied(env, grant_id, milestone_idx);
+        let mut profile = match Storage::get_contributor(env, contributor.clone()) {
+            Some(p) => p,
+            None => return,
+        };
+        let _ = reputation::record_completion(
+            env,
+            grant_id,
+            milestone_idx,
+            &mut profile,
+            payout_amount,
+        );
     }
 }
 

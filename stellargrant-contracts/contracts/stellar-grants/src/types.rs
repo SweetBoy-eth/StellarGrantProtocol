@@ -112,6 +112,7 @@ pub struct ContributorProfile {
     pub skills: Vec<String>,
     pub github_url: String,
     pub registration_timestamp: u64,
+    pub reputation_score: u64,
     pub grants_count: u32,
     pub total_earned: i128,
     pub milestones_completed: u32,
@@ -327,6 +328,7 @@ pub struct HookCallResult {
 
 /// Opaque byte payload passed to hook callbacks.
 pub type HookPayload = Bytes;
+
 
 // ── Issue #514: Dispute Resolution Module ────────────────────────────────────
 
