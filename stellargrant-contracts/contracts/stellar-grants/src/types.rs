@@ -114,6 +114,8 @@ pub struct ContributorProfile {
     pub registration_timestamp: u64,
     pub grants_count: u32,
     pub total_earned: i128,
+    pub milestones_completed: u32,
+    pub milestones_rejected: u32,
 }
 
 #[contracttype]
@@ -325,3 +327,73 @@ pub struct HookCallResult {
 
 /// Opaque byte payload passed to hook callbacks.
 pub type HookPayload = Bytes;
+
+// ── Issue #514: Dispute Resolution Module ────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DisputeStatus {
+    Open = 0,
+    UnderReview = 1,
+    ResolvedForContributor = 2,
+    ResolvedForFunder = 3,
+    Cancelled = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dispute {
+    pub grant_id: u64,
+    pub milestone_idx: u32,
+    pub raised_by: Address,
+    pub reason: String,
+    pub status: DisputeStatus,
+    pub arbiters: Vec<Address>,
+    pub votes_contributor: u32,
+    pub votes_funder: u32,
+    pub raised_at: u64,
+    pub resolved_at: Option<u64>,
+}
+
+// ── Issue #515: Contributor Reputation ───────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ReputationTier {
+    Unranked = 0,
+    Bronze = 1,
+    Silver = 2,
+    Gold = 3,
+    Platinum = 4,
+}
+
+// ── Issue #516: Runtime Protocol Configuration ───────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolConfig {
+    pub quorum_threshold_bps: u32,
+    pub max_reviewers: u32,
+    pub min_stake_amount: i128,
+    pub protocol_fee_bps: u32,
+    pub max_milestones_per_grant: u32,
+    pub dispute_window_ledgers: u32,
+    pub max_grant_title_len: u32,
+    pub max_grant_desc_len: u32,
+}
+
+// ── Issue #517: Protocol Fee Collection ──────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeeRecord {
+    pub grant_id: u64,
+    pub milestone_idx: u32,
+    pub gross_amount: i128,
+    pub fee_amount: i128,
+    pub net_amount: i128,
+    pub token: Address,
+    pub collected_at: u64,
+}
