@@ -7,6 +7,10 @@ mod checklist;
 mod circuit_breaker;
 mod crowdfund;
 mod compliance;
+mod milestone_deps;
+mod milestone_nft;
+mod open_review;
+mod portfolio;
 mod config;
 mod constants;
 mod cross_contract;
@@ -54,21 +58,22 @@ pub use storage::Storage;
 pub use types::{
     AcceptanceCriteria, AnalyticsSnapshot, AuditAction, AuditEntry, BreakerState, CategoryStats,
     ChecklistSubmission, ComplianceAttestation, ComplianceLevel, ComplianceStatus, ContractVersion,
-    CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
+    ContributorPortfolio, CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
     CriterionStatus, DexConfig, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState,
     EscrowMode, EscrowState, EvidenceField, EvidenceFieldType, EvidenceSchema, FeeRecord,
-    FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantStatus, GrantTag,
+    FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantStatus, GrantSummary, GrantTag,
     GrantTemplate, HookCallResult, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy,
     Invoice, InvoiceStatus, IpRights, LicenseRecord, LicenseType, LineItem, MerkleCommitment,
-    MerkleProof, MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, MultisigProposal,
-    MultisigSigner, OracleConfig, ParamRecord, ParamType, ParamValue, PauseRecord, PaymentSplit,
-    PaymentStream, PriceQuote, ProtocolConfig, ProtocolMetrics, ProtocolModule, QuadraticVoteRecord,
-    RateLimitAction, RegistryEntry, RegistryEntryType, RelayableAction, RelayAllowance, RelayConfig,
-    RelayRecord, RenewalProposal, RenewalStatus, ReputationTier, ReviewerAvailability, ReviewerProfile,
-    ReviewerRequest, ReviewerRequestStatus, Role, RoleAssignment, RollingWindow, ScoreResult,
-    ScoringDimension, ScoringRubric, ScoringWeight, SignatureStatus, SplitRecipient,
-    StructuredEvidence, SwapResult, SwapRoute, TokenMetric, TransferProposal, TransferableRole,
-    VoiceCredits, VotingMechanism,
+    MerkleProof, MigrationRecord, Milestone, MilestoneDag, MilestoneDependency, MilestoneNft,
+    MilestoneState, MilestoneSubmission, MultisigProposal, MultisigSigner,
+    NftMetadata, OracleConfig, ParamRecord, ParamType, ParamValue, PauseRecord, PaymentSplit, PaymentStream,
+    PriceQuote, ProtocolConfig, ProtocolMetrics, ProtocolModule, PublicReview, PublicReviewSignal,
+    QuadraticVoteRecord, RateLimitAction, RegistryEntry, RegistryEntryType, RelayableAction,
+    RelayAllowance, RelayConfig, RelayRecord, RenewalProposal, RenewalStatus, ReputationTier,
+    ReviewerAvailability, ReviewerProfile, ReviewerRequest, ReviewerRequestStatus, Role,
+    RoleAssignment, RollingWindow, ScoreResult, ScoringDimension, ScoringRubric, ScoringWeight,
+    SignatureStatus, SplitRecipient, StructuredEvidence, SwapResult, SwapRoute, TokenMetric,
+    TransferProposal, TransferableRole, VoiceCredits, VotingMechanism,
 };
 
 use metrics::MetricField;
