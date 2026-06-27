@@ -69,6 +69,7 @@ mod syndication;
 mod token_swap;
 mod types;
 mod versioning;
+pub mod math;
 mod whitelist;
 
 pub use errors::ContractError;
@@ -749,10 +750,7 @@ impl StellarGrantsContract {
         milestone.rejections += reputation;
         milestone.reasons.set(reviewer.clone(), reason.clone());
 
-        let mut total_weight: u32 = 0;
-        for r in grant.reviewers.iter() {
-            total_weight += Storage::get_reviewer_reputation(&env, r);
-        }
+        let total_weight = milestone.reviewer_count_snapshot;
 
         let majority_threshold = (total_weight / 2) + 1;
         let majority_rejected = milestone.rejections >= majority_threshold;
@@ -3702,6 +3700,7 @@ fn apply_milestone_submission(
         proof_url: Some(proof_url),
         submission_timestamp: env.ledger().timestamp(),
         deadline: None,
+        reviewer_count_snapshot: grant.reviewers.len(),
     };
 
     Storage::set_milestone(env, grant_id, milestone_idx, &milestone);
